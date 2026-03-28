@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Face Punch Simulator</title>
+    <style>
+        :root {
+            --bg: #1a1a1a;
+            --panel: #2d2d2d;
+            --accent: #ff4757;
+            --health: #2ecc71;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            width: 90%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* Canvas Wrapper for Shake Effect */
+        #viewport {
+            position: relative;
+            width: 100%;
+            max-height: 70vh;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        /* Impact Text (POW!) */
+        .impact {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            font-size: 4rem;
+            font-weight: 900;
+            color: #fff;
+            text-shadow: 4px 4px 0 #000;
+            pointer-events: none;
+            opacity: 0;
+            z-index: 10;
+        }
+        .impact.show {
+            animation: pop 0.3s ease-out forwards;
+        }
+
+        @keyframes pop {
+            0% { transform: translate(-50%, -50%) scale(0) rotate(-10deg); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.5) rotate(10deg); opacity: 0; }
+        }
+
+        /* UI Panel */
+        #ui {
+            background: var(--panel);
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .bar-container {
+            width: 100%;
+            height: 20px;
+            background: #444;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #health-fill {
+            height: 100%;
+            width: 100%;
+            background: var(--health);
+            transition: width 0.2s, background 0.3s;
+        }
+
+        #status {
+            text-align: center;
+            font-size: 0.9rem;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: filter 0.2s;
+        }
+        button:active { filter: brightness(0.8); }
+
+        /* Shake Animation Class */
+        .shake-hard { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-2px, 0, 0) rotate(-1deg); }
+            20%, 80% { transform: translate3d(4px, 0, 0) rotate(2deg); }
+            30%, 50%, 70% { transform: translate3d(-8px, 0, 0) rotate(-3deg); }
+            40%, 60% { transform: translate3d(8px, 0, 0) rotate(3deg); }
+        }
+
+        .hint {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.3);
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="viewport">
+            <canvas id="gameCanvas"></canvas>
+            <div id="impact-text" class="impact">POW!</div>
+            <div class="hint">TAP TO PUNCH</div>
+        </div>
+
+        <div id="ui">
+            <div class="row">
+                <span>Health</span>
+                <span id="health-val">100%</span>
+            </div>
+            <div class="bar-container">
+                <div id="health-fill"></div>
+            </div>
+            <div id="status">Status: Healthy</div>
+            <button onclick="resetGame()">Reset / Heal</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const SPRITE_PREFIX = 'sprite-faces/1774729159925-';
+        const SPRITE_EXT = '.webp';
+        const TOTAL_FRAMES = 9;
+
+        // --- State ---
+        let health = 100;
+        let currentFrame = 0;
+        let particles = [];
+        let sprites = [];
+        let loadedCount = 0;
+        
+        // --- DOM ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const viewport = document.getElementById('viewport');
+        const healthFill = document.getElementById('health-fill');
+        const healthVal = document.getElementById('health-val');
+        const statusText = document.getElementById('status');
+        const impactText = document.getElementById('impact-text');
+
+        // --- Image Loading ---
+        for(let i = 1; i <= TOTAL_FRAMES; i++) {
+            const img = new Image();
+            const num = i.toString().padStart(2, '0');
+            img.src = SPRITE_PREFIX + num + SPRITE_EXT;
+            img.onload = () => {
+                loadedCount++;
+                if(loadedCount === TOTAL_FRAMES) {
+                    resize();
+                    loop();
+                }
+            };
+            sprites.push(img);
+        }
+
+        // --- Resize Handling ---
+        function resize() {
+            const firstImg = sprites[0];
+            if(firstImg) {
+                canvas.width = firstImg.naturalWidth;
+                canvas.height = firstImg.naturalHeight;
+            }
+        }
+
+        // --- Game Logic ---
+
+        function updateUI() {
+            healthFill.style.width = health + '%';
+            healthVal.innerText = Math.ceil(health) + '%';
+            
+            if(health > 60) healthFill.style.background = '#2ecc71';
+            else if(health > 30) healthFill.style.background = '#f1c40f';
+            else healthFill.style.background = '#e74c3c';
+
+            const statuses = [
+                "Healthy", "Minor Cuts", "Bruised Eye", "Nosebleed", 
+                "Black Eye", "Bloody Face", "Beaten Up", "Critical", "Knocked Out"
+            ];
+            const frameIndex = Math.min(Math.floor((100 - health) / (100/TOTAL_FRAMES)), TOTAL_FRAMES-1);
+            statusText.innerText = "Status: " + statuses[frameIndex];
+        }
+
+        function spawnParticles(x, y, amount) {
+            for(let i=0; i<amount; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10 - 5,
+                    life: 1.0,
+                    color: `rgba(200, 50, 50, ${Math.random()})`,
+                    size: Math.random() * 4 + 2
+                });
+            }
+        }
+
+        function punch(e) {
+            if(health <= 0) return;
+
+            const dmg = 10 + Math.random() * 5;
+            health -= dmg;
+            if(health < 0) health = 0;
+
+            const progress = (100 - health) / 100;
+            currentFrame = Math.min(Math.floor(progress * TOTAL_FRAMES), TOTAL_FRAMES - 1);
+
+            viewport.classList.remove('shake-hard');
+            void viewport.offsetWidth;
+            viewport.classList.add('shake-hard');
+
+            const words = ["POW!", "BAM!", "WHACK!", "OUCH!", "CRUNCH!"];
+            impactText.innerText = words[Math.floor(Math.random() * words.length)];
+            impactText.classList.remove('show');
+            void impactText.offsetWidth;
+            impactText.classList.add('show');
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
+
+            spawnParticles(x, y, 15);
+
+            canvas.style.filter = 'brightness(2) sepia(1) hue-rotate(-50deg) saturate(5)';
+            setTimeout(() => canvas.style.filter = 'none', 50);
+
+            updateUI();
+        }
+
+        function resetGame() {
+            health = 100;
+            currentFrame = 0;
+            particles = [];
+            updateUI();
+        }
+
+        // --- Render Loop ---
+        function loop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const sprite = sprites[currentFrame];
+            if(sprite && sprite.complete) {
+                ctx.drawImage(sprite, 0, 0, canvas.width, canvas.height);
+            }
+
+            for(let i=particles.length-1; i>=0; i--) {
+                const p = particles[i];
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+                ctx.fill();
+
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.5;
+                p.life -= 0.02;
+
+                if(p.life <= 0 || p.y > canvas.height) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        // --- Input ---
+        viewport.addEventListener('mousedown', punch);
+        viewport.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            punch(e);
+        }, {passive: false});
+
+    </script>
+</body>
+</html>
