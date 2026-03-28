@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <base href="/punch-me/">
+    <!-- <base href="/punch-me/"> -->
     <title>Face Punch Simulator</title>
     <style>
         :root {
@@ -208,10 +208,14 @@
             img.src = SPRITE_PREFIX + num + SPRITE_EXT;
             img.onload = () => {
                 loadedCount++;
+                console.log('Loaded:', loadedCount, img.src);
                 if(loadedCount === TOTAL_FRAMES) {
                     resize();
                     loop();
                 }
+            };
+            img.onerror = (e) => {
+                console.error('Failed to load:', img.src, e);
             };
             sprites.push(img);
         }
@@ -219,11 +223,16 @@
         // --- Resize Handling ---
         function resize() {
             const firstImg = sprites[0];
-            if(firstImg) {
+            if(firstImg && firstImg.naturalWidth > 0) {
                 canvas.width = firstImg.naturalWidth;
                 canvas.height = firstImg.naturalHeight;
+                console.log('Canvas resized to:', canvas.width, 'x', canvas.height);
             }
         }
+
+        // Set initial canvas size as fallback
+        canvas.width = 400;
+        canvas.height = 400;
 
         // --- Game Logic ---
 
@@ -306,8 +315,11 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             const sprite = sprites[currentFrame];
-            if(sprite && sprite.complete) {
-                ctx.drawImage(sprite, 0, 0, canvas.width, canvas.height);
+            if(sprite && sprite.complete && sprite.naturalWidth > 0) {
+                console.log('Drawing sprite:', currentFrame, sprite.naturalWidth, sprite.naturalHeight);
+                ctx.drawImage(sprite, 0, 0);
+            } else {
+                console.log('Sprite not ready:', currentFrame, sprite ? sprite.complete : 'no sprite', sprite ? sprite.naturalWidth : 0);
             }
 
             for(let i=particles.length-1; i>=0; i--) {
